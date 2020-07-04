@@ -1150,7 +1150,7 @@ MonoBehaviour:
   BoidsCount: 250
   BoidsDensity: 0.08
   Speed: 5
-  neighbourRadius: 2
+  neighbourRadius: 3
   avoidanceRadiusMultiplier: 1
   CohesionStrength: 4
   AlignmentStrength: 1
