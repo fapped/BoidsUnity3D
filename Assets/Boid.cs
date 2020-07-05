@@ -23,9 +23,9 @@ public class Boid : MonoBehaviour
 	[Range(0f, 1f)]
 	public float avoidanceRadiusMultiplier = 0.5f;
 
-	float squareMaxSpeed;
-	float squareNeighbourRadius;
-	float squareAvoidanceRadius;
+	float squareMaxSpeed => Speed * Speed;
+	float squareNeighbourRadius => neighbourRadius * neighbourRadius;
+	float squareAvoidanceRadius => squareNeighbourRadius * avoidanceRadiusMultiplier * avoidanceRadiusMultiplier;
 
 	[Range(0f, 10f)]
 	public float CohesionStrength = 4.0f;
@@ -47,10 +47,6 @@ public class Boid : MonoBehaviour
 	// Start is called before the first frame update
 	void Start()
 	{
-		squareMaxSpeed = Speed * Speed;
-		squareNeighbourRadius = neighbourRadius * neighbourRadius;
-		squareAvoidanceRadius = squareNeighbourRadius * avoidanceRadiusMultiplier * avoidanceRadiusMultiplier;
-
 		for (int idx = 0; idx < BoidsCount; idx++)
 		{
 			BoidActor newActor = Instantiate(Prefab, Random.insideUnitSphere * BoidsCount * BoidsDensity, Quaternion.Euler(Vector3.forward * Random.Range(0f, 360f)), transform);
@@ -144,8 +140,24 @@ public class Boid : MonoBehaviour
 
 			Vector3 movement = Vector3.zero;
 
+			var obstacles = neighbours.Where(neigh => neigh.CompareTag("obstacle"));
+			var boids = neighbours.Where(neigh => !neigh.CompareTag("obstacle"));
+
+			//radius
 			{
-				Vector3 cohesionMove = CalcCohesion(actor, neighbours) * CohesionStrength;
+				Vector3 centerOffset = Vector3.zero - actor.transform.position;
+				float percentLen = centerOffset.magnitude / RadiusSize;
+
+				if (percentLen > 0.8f)
+				{
+					Vector3 insideMove = (centerOffset * percentLen * percentLen) * RadiusStrength;
+					insideMove = GetSafeValue(insideMove, RadiusStrength);
+					movement += insideMove;
+				}
+			}
+
+			{
+				Vector3 cohesionMove = CalcCohesion(actor, boids) * CohesionStrength;
 				if (cohesionMove != Vector3.zero)
 				{
 					cohesionMove = GetSafeValue(cohesionMove, CohesionStrength);
@@ -154,7 +166,7 @@ public class Boid : MonoBehaviour
 			}
 
 			{
-				Vector3 alignmentMove = CalcAlignment(actor, neighbours) * AlignmentStrength;
+				Vector3 alignmentMove = CalcAlignment(actor, boids) * AlignmentStrength;
 				if (alignmentMove != Vector3.zero)
 				{
 					alignmentMove = GetSafeValue(alignmentMove, AlignmentStrength);
@@ -163,7 +175,7 @@ public class Boid : MonoBehaviour
 			}
 
 			{
-				Vector3 avoidanceMove = CalcAvoidance(actor, neighbours, this) * AvoidanceStrength;
+				Vector3 avoidanceMove = CalcAvoidance(actor, boids, this) * AvoidanceStrength;
 				if (avoidanceMove != Vector3.zero)
 				{
 					avoidanceMove = GetSafeValue(avoidanceMove, AvoidanceStrength);
@@ -171,16 +183,12 @@ public class Boid : MonoBehaviour
 				}
 			}
 
-			//radius
 			{
-				Vector3 centerOffset = Vector3.zero - actor.transform.position;
-				float percentLen = centerOffset.magnitude / RadiusSize;
-
-				if (percentLen > 0.9f)
+				Vector3 avoidObstacleMove = CalcAvoidObstacle(actor, obstacles, this) * 5.0f;
+				if (avoidObstacleMove != Vector3.zero)
 				{
-					Vector3 insideMove = (centerOffset * percentLen * percentLen) * RadiusStrength;
-					insideMove = GetSafeValue(insideMove, RadiusStrength);
-					movement += insideMove;
+					avoidObstacleMove = GetSafeValue(avoidObstacleMove, 5.0f);
+					movement += avoidObstacleMove;
 				}
 			}
 
@@ -208,7 +216,7 @@ public class Boid : MonoBehaviour
 	Vector3 currentVelocity;
 	public float cohesionSmoothTime = 0.5f;
 
-	Vector3 CalcCohesion(BoidActor actor, List<Transform> neighbours)
+	Vector3 CalcCohesion(BoidActor actor, IEnumerable<Transform> neighbours)
 	{
 		Vector3 cohesionMove = Vector3.zero;
 
@@ -218,17 +226,17 @@ public class Boid : MonoBehaviour
 		foreach (var item in neighbours)
 			cohesionMove += item.position;
 
-		cohesionMove /= neighbours.Count;
+		cohesionMove /= neighbours.Count();
 
 		cohesionMove -= actor.transform.position;
-		cohesionMove = Vector3.SmoothDamp(actor.transform.forward, cohesionMove, ref currentVelocity, cohesionSmoothTime);
+		cohesionMove = Vector3.SmoothDamp(actor.transform.forward, cohesionMove, ref currentVelocity, cohesionSmoothTime, squareMaxSpeed);
 
 		return cohesionMove;
 	}
 	#endregion
 
 	#region alignment
-	Vector3 CalcAlignment(BoidActor actor, List<Transform> neighbours)
+	Vector3 CalcAlignment(BoidActor actor, IEnumerable<Transform> neighbours)
 	{
 		if (neighbours.Any() == false)
 			return actor.transform.forward;
@@ -238,14 +246,14 @@ public class Boid : MonoBehaviour
 		foreach (var item in neighbours)
 			alignmentMove += item.transform.forward;
 
-		alignmentMove /= neighbours.Count;
+		alignmentMove /= neighbours.Count();
 
 		return alignmentMove;
 	}
 	#endregion
 
 	#region avoidance
-	Vector3 CalcAvoidance(BoidActor actor, List<Transform> neighbours, Boid Boid)
+	Vector3 CalcAvoidance(BoidActor actor, IEnumerable<Transform> neighbours, Boid Boid)
 	{
 		Vector3 avoidanceMove = Vector3.zero;
 
@@ -263,12 +271,38 @@ public class Boid : MonoBehaviour
 			}
 		}
 
-		if (avoid > 1)
+		if (avoid > 0)
 			avoidanceMove /= avoid;
 
 		return avoidanceMove;
 	}
 	#endregion
+
+
+	Vector3 CalcAvoidObstacle(BoidActor actor, IEnumerable<Transform> neighbours, Boid Boid)
+	{
+		Vector3 avoidanceMove = Vector3.zero;
+
+		if (neighbours.Any() == false)
+			return avoidanceMove;
+
+		int avoid = 0;
+
+		foreach (var item in neighbours)
+		{
+			if (Vector3.SqrMagnitude(item.position - actor.transform.position) < (Boid.squareAvoidanceRadius * item.localScale.x))
+			{
+				Debug.DrawLine(item.position, actor.transform.position, Color.red, 5.0f);
+				avoid++;
+				avoidanceMove += actor.transform.position - item.position;
+			}
+		}
+
+		if (avoid > 0)
+			avoidanceMove /= avoid;
+
+		return avoidanceMove;
+	}
 
 	List<Transform> GetNeighbours(BoidActor actor)
 	{
