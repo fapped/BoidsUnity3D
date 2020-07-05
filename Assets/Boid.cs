@@ -290,9 +290,9 @@ public class Boid : MonoBehaviour
 
 		foreach (var item in neighbours)
 		{
-			if (Vector3.SqrMagnitude(item.position - actor.transform.position) < (Boid.squareAvoidanceRadius * item.localScale.x))
+			if (item.GetComponent<Renderer>().bounds.SqrDistance(actor.transform.position) < Boid.squareAvoidanceRadius)
 			{
-				Debug.DrawLine(item.position, actor.transform.position, Color.red, 5.0f);
+				Debug.DrawLine(item.position, actor.transform.position, Color.red, 3.0f);
 				avoid++;
 				avoidanceMove += actor.transform.position - item.position;
 			}
